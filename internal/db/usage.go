@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
+	"github.com/wesm/agentsview/internal/pricing"
 )
 
 // UsageFilter controls the date range, agent, and timezone
@@ -242,6 +243,11 @@ func (db *DB) loadPricingMap(
 			return nil, err
 		}
 		out[pattern] = rates
+		if norm := pricing.NormalizeModel(pattern); norm != pattern {
+			if _, exists := out[norm]; !exists {
+				out[norm] = rates
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -257,6 +263,18 @@ func (db *DB) loadPricingMap(
 	}
 
 	return out, nil
+}
+
+// lookupRates returns the modelRates for a model string,
+// falling back to a normalized (lowercased, date-stripped)
+// key when the exact match misses.
+func lookupRates(
+	m map[string]modelRates, model string,
+) modelRates {
+	if r, ok := m[model]; ok {
+		return r
+	}
+	return m[pricing.NormalizeModel(model)]
 }
 
 // paddedUTCBound pads a UTC timestamp by hours to cover timezone
@@ -431,7 +449,7 @@ WHERE ` + usageMessageEligibility
 		cacheRdTok := int(
 			usage.Get("cache_read_input_tokens").Int())
 
-		rates := pricing[model]
+		rates := lookupRates(pricing, model)
 		cost := (float64(inputTok)*rates.input +
 			float64(outputTok)*rates.output +
 			float64(cacheCrTok)*rates.cacheCreation +
@@ -897,7 +915,7 @@ WHERE ` + usageMessageEligibility
 		cacheRdTok := int(
 			usage.Get("cache_read_input_tokens").Int())
 
-		rates := pricing[model]
+		rates := lookupRates(pricing, model)
 		cost := (float64(inputTok)*rates.input +
 			float64(outputTok)*rates.output +
 			float64(cacheCrTok)*rates.cacheCreation +

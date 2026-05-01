@@ -1020,7 +1020,7 @@ func addMessageToCacheTotals(
 	totals.cacheCreateT += cacheCrTok
 	totals.cacheReadT += cacheRdTok
 
-	rates := pricing[model]
+	rates := lookupRates(pricing, model)
 	totals.dollarsSpent += (float64(inputTok)*rates.input +
 		float64(outputTok)*rates.output +
 		float64(cacheCrTok)*rates.cacheCreation +

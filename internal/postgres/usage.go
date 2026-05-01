@@ -10,7 +10,17 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/wesm/agentsview/internal/db"
+	"github.com/wesm/agentsview/internal/pricing"
 )
+
+func lookupRates(
+	m map[string]modelRates, model string,
+) modelRates {
+	if r, ok := m[model]; ok {
+		return r
+	}
+	return m[pricing.NormalizeModel(model)]
+}
 
 const pgUsageMessageEligibility = `
 	m.token_usage != ''
@@ -235,7 +245,7 @@ WHERE ` + pgUsageMessageEligibility
 			usage.Get("cache_read_input_tokens").Int(),
 		)
 
-		rates := pricing[model]
+		rates := lookupRates(pricing, model)
 		cost := (float64(inputTok)*rates.input +
 			float64(outputTok)*rates.output +
 			float64(cacheCrTok)*rates.cacheCreation +
@@ -654,7 +664,7 @@ WHERE ` + pgUsageMessageEligibility
 			usage.Get("cache_read_input_tokens").Int(),
 		)
 
-		rates := pricing[model]
+		rates := lookupRates(pricing, model)
 		cost := (float64(inputTok)*rates.input +
 			float64(outputTok)*rates.output +
 			float64(cacheCrTok)*rates.cacheCreation +

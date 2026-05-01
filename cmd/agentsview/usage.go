@@ -272,13 +272,14 @@ func printSyncSummaryStderr(stats sync.SyncStats, t time.Time) {
 }
 
 // seedPricing ensures fallback rates are present in
-// model_pricing, then kicks off a background LiteLLM refresh.
+// model_pricing, then kicks off background refreshes from
+// LiteLLM and OpenRouter.
 //
 // Fallback rates are only upserted when the stored seed
 // version differs from pricing.FallbackVersion (or is
-// absent). This avoids overwriting live LiteLLM rates on
-// every restart while still propagating corrected fallback
-// rates when the binary is upgraded.
+// absent). This avoids overwriting live rates on every
+// restart while still propagating corrected fallback rates
+// when the binary is upgraded.
 func seedPricing(database *db.DB) {
 	const metaKey = "_fallback_version"
 	stored, err := database.GetPricingMeta(metaKey)
@@ -297,6 +298,7 @@ func seedPricing(database *db.DB) {
 		}
 	}
 	go refreshPricingFromLiteLLM(database)
+	go refreshPricingFromOpenRouter(database)
 }
 
 // refreshPricingFromLiteLLM fetches the upstream LiteLLM
@@ -316,6 +318,21 @@ func refreshPricingFromLiteLLM(database *db.DB) {
 	}
 }
 
+func refreshPricingFromOpenRouter(database *db.DB) {
+	prices, err := pricing.FetchOpenRouterPricing()
+	if err != nil {
+		log.Printf(
+			"pricing refresh: openrouter fetch failed: %v", err,
+		)
+		return
+	}
+	if err := upsertPricing(database, prices); err != nil {
+		log.Printf(
+			"pricing refresh: openrouter upsert failed: %v", err,
+		)
+	}
+}
+
 func ensurePricing(database *db.DB, offline bool) {
 	var prices []pricing.ModelPricing
 
@@ -329,6 +346,14 @@ func ensurePricing(database *db.DB, offline bool) {
 				"warning: pricing fetch failed: %v"+
 					"; using fallback\n", err)
 			prices = pricing.FallbackPricing()
+		}
+		orPrices, orErr := pricing.FetchOpenRouterPricing()
+		if orErr != nil {
+			fmt.Fprintf(os.Stderr,
+				"warning: openrouter pricing fetch failed: %v\n",
+				orErr)
+		} else {
+			prices = append(prices, orPrices...)
 		}
 	}
 

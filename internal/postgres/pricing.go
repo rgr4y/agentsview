@@ -39,11 +39,17 @@ func pricingRowsToMap(prices []db.ModelPricing) map[string]modelRates {
 		if strings.HasPrefix(p.ModelPattern, "_") {
 			continue
 		}
-		out[p.ModelPattern] = modelRates{
+		r := modelRates{
 			input:         p.InputPerMTok,
 			output:        p.OutputPerMTok,
 			cacheCreation: p.CacheCreationPerMTok,
 			cacheRead:     p.CacheReadPerMTok,
+		}
+		out[p.ModelPattern] = r
+		if norm := pricing.NormalizeModel(p.ModelPattern); norm != p.ModelPattern {
+			if _, exists := out[norm]; !exists {
+				out[norm] = r
+			}
 		}
 	}
 	return out
@@ -101,11 +107,17 @@ func (s *Store) mergeDBPricing(
 		if strings.HasPrefix(p.ModelPattern, "_") {
 			continue
 		}
-		out[p.ModelPattern] = modelRates{
+		r := modelRates{
 			input:         p.InputPerMTok,
 			output:        p.OutputPerMTok,
 			cacheCreation: p.CacheCreationPerMTok,
 			cacheRead:     p.CacheReadPerMTok,
+		}
+		out[p.ModelPattern] = r
+		if norm := pricing.NormalizeModel(p.ModelPattern); norm != p.ModelPattern {
+			if _, exists := out[norm]; !exists {
+				out[norm] = r
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
