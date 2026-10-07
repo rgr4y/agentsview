@@ -1186,12 +1186,15 @@ fixtures retain this field; missing identities remain source-local.
 
 ## Grok Bot (`grok-bot`)
 
-- **Format:** One append-only JSONL transcript per agent at
-  `<data-root>/agent-transcripts/<agent-id>/<agent-id>.jsonl`, with
-  line-delimited role/message objects that can contain text, tool call, and
-  tool result blocks. Lines do not include stable per-message timestamps or
-  session IDs, so session identity is path-derived and message/session times
-  fall back to transcript file mtime.
+- **Format:** One append-only JSONL transcript per agent at either
+  `<data-root>/agent-transcripts/<agent-id>/<agent-id>.jsonl` or
+  `<data-root>/<agent-id>/<agent-id>.jsonl`, with line-delimited
+  role/message objects that can contain text, assistant thinking blocks, tool
+  call blocks, and tool result blocks. Transcript lines do not include
+  authoritative per-row timestamps, but user text often embeds
+  `<timestamp>...</timestamp>` tags; Agentsview parses those and carries the
+  timestamp forward to following assistant/tool rows, then falls back to file
+  mtime when no tag is present.
 - **Evidence:** `no-public-source`.
 - **Upstream:** No public Grok Bot schema or repository is available; the
   format and directory layout were checked 2026-10-07 against sanitized local

@@ -4,6 +4,10 @@ This package parses Grok Bot transcript files in the layout:
 
 `<data-root>/agent-transcripts/<agent-id>/<agent-id>.jsonl`
 
+and also:
+
+`<data-root>/<agent-id>/<agent-id>.jsonl`
+
 Each transcript file is treated as one long-running session for that agent ID.
 
 ## Enabling in agentsview
@@ -12,15 +16,18 @@ Each transcript file is treated as one long-running session for that agent ID.
 
 - Environment variable override: `GROK_BOT_DATA_DIR`
 - Config setting: `[agents.grok-bot].dirs = ["/path/to/data-root"]`
-- Default root when not configured: `~/agent-data`
+- Default root when not configured: `~/workspace/.grokbot/projects`
 
-The provider watches and parses under `<root>/agent-transcripts`.
+The provider watches and parses under `<root>`, matching either layout.
 
 ## Notes
 
 - User turns beginning with `[GROK_BOT_HIDDEN_PROMPT]` or
   `[SAND_HIDDEN_PROMPT]` are tagged as system messages so they are not counted
   as user-typed prompts.
+- User timestamp tags in message text (for example
+  `<timestamp>Tuesday, Sep 22, 2026, 11:26 PM (UTC-5)</timestamp>`) are parsed
+  when present and carried forward to following assistant/tool rows.
 - Malformed JSONL lines are skipped and counted.
 - Empty transcript files produce no session rows.
 

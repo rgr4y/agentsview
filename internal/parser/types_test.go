@@ -680,7 +680,7 @@ func TestGrokBotRegistryEntry(t *testing.T) {
 	require.True(t, def.FileBased, "Grok Bot FileBased")
 	assert.Equal(t, "GROK_BOT_DATA_DIR", def.EnvVar)
 	assert.Equal(t, "grok_bot_dirs", def.ConfigKey)
-	assert.Equal(t, []string{"agent-data"}, def.DefaultDirs)
+	assert.Equal(t, []string{"workspace/.grokbot/projects"}, def.DefaultDirs)
 	assert.Equal(t, "grok-bot:", def.IDPrefix)
 }
 

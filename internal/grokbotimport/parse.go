@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,6 +19,9 @@ const (
 	hiddenPromptMarkerSand    = "[SAND_HIDDEN_PROMPT]"
 )
 
+var timestampTagRE = regexp.MustCompile(`(?is)<timestamp>\s*(.*?)\s*</timestamp>`)
+var utcOffsetRE = regexp.MustCompile(`^UTC([+-])(\d{1,2})(?::?(\d{2}))?$`)
+
 // Role is the normalized message role parsed from a Grok Bot transcript row.
 type Role string
 
@@ -24,6 +29,7 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleSystem    Role = "system"
+	RoleTool      Role = "tool"
 )
 
 // ToolCall captures one assistant tool call block.
@@ -42,12 +48,16 @@ type ToolResult struct {
 
 // Message is one normalized transcript message.
 type Message struct {
-	Role        Role
-	Content     string
-	IsSystem    bool
-	HiddenInput bool
-	ToolCalls   []ToolCall
-	ToolResults []ToolResult
+	Role         Role
+	Content      string
+	IsSystem     bool
+	HiddenInput  bool
+	Timestamp    time.Time
+	HasTimestamp bool
+	HasThinking  bool
+	ThinkingText string
+	ToolCalls    []ToolCall
+	ToolResults  []ToolResult
 }
 
 // Result is the parser output for a single Grok Bot transcript file.
@@ -78,6 +88,8 @@ type contentBlock struct {
 	ToolCallID string          `json:"tool_call_id"`
 	ToolName   string          `json:"tool_name"`
 	Content    json.RawMessage `json:"content"`
+	Result     json.RawMessage `json:"result"`
+	Thinking   string          `json:"thinking"`
 	Function   struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -94,6 +106,34 @@ func TranscriptRoot(dataRoot string) string {
 // <transcript-root>/<agentID>/<agentID>.jsonl and returns the agent ID.
 func MatchTranscriptPath(transcriptRoot, path string) (string, bool) {
 	rel, err := filepath.Rel(filepath.Clean(transcriptRoot), filepath.Clean(path))
+	if err != nil {
+		return "", false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) != 2 {
+		return "", false
+	}
+	agentID := strings.TrimSpace(parts[0])
+	if agentID == "" || agentID == "." || agentID == ".." {
+		return "", false
+	}
+	if parts[1] != agentID+".jsonl" {
+		return "", false
+	}
+	return agentID, true
+}
+
+// MatchPathUnderDataRoot checks whether path matches either supported layout
+// under dataRoot:
+//   - <root>/agent-transcripts/<agentID>/<agentID>.jsonl
+//   - <root>/<agentID>/<agentID>.jsonl
+func MatchPathUnderDataRoot(dataRoot, path string) (string, bool) {
+	cleanRoot := filepath.Clean(dataRoot)
+	cleanPath := filepath.Clean(path)
+	if agentID, ok := MatchTranscriptPath(TranscriptRoot(cleanRoot), cleanPath); ok {
+		return agentID, true
+	}
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
 	if err != nil {
 		return "", false
 	}
@@ -162,6 +202,7 @@ func ParseFile(path string) (Result, error) {
 		AgentID:      agentID,
 		RawSessionID: rawSessionID,
 	}
+	var carriedTimestamp time.Time
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -177,6 +218,13 @@ func ParseFile(path string) (Result, error) {
 		msg, ok := normalizeMessage(row)
 		if !ok {
 			continue
+		}
+		if msg.HasTimestamp {
+			carriedTimestamp = msg.Timestamp
+		} else if !carriedTimestamp.IsZero() &&
+			(msg.Role == RoleAssistant || msg.Role == RoleTool) {
+			msg.Timestamp = carriedTimestamp
+			msg.HasTimestamp = true
 		}
 		result.Messages = append(result.Messages, msg)
 		if msg.Role == RoleUser && !msg.IsSystem && strings.TrimSpace(msg.Content) != "" {
@@ -199,7 +247,7 @@ func parseRow(line string) (transcriptRow, bool, bool) {
 	}
 	role := strings.TrimSpace(row.Role)
 	switch role {
-	case "user", "assistant", "system":
+	case "user", "assistant", "system", "tool":
 		return row, false, true
 	default:
 		return transcriptRow{}, false, false
@@ -213,9 +261,10 @@ func normalizeMessage(row transcriptRow) (Message, bool) {
 	}
 
 	var (
-		textParts   []string
-		toolCalls   []ToolCall
-		toolResults []ToolResult
+		textParts     []string
+		thinkingParts []string
+		toolCalls     []ToolCall
+		toolResults   []ToolResult
 	)
 	for _, block := range blocks {
 		switch normalizeBlockType(block.Type) {
@@ -223,6 +272,11 @@ func normalizeMessage(row transcriptRow) (Message, bool) {
 			text := strings.TrimSpace(block.Text)
 			if text != "" {
 				textParts = append(textParts, text)
+			}
+		case "thinking":
+			thinking := strings.TrimSpace(block.Thinking)
+			if thinking != "" {
+				thinkingParts = append(thinkingParts, thinking)
 			}
 		case "tool_use":
 			if call, ok := normalizeToolCall(block); ok {
@@ -248,17 +302,37 @@ func normalizeMessage(row transcriptRow) (Message, bool) {
 	switch strings.TrimSpace(row.Role) {
 	case "assistant":
 		msg.Role = RoleAssistant
+		if len(thinkingParts) > 0 {
+			msg.HasThinking = true
+			msg.ThinkingText = strings.Join(thinkingParts, "\n\n")
+			msg.Content = "[Thinking]\n" + msg.ThinkingText + "\n[/Thinking]\n" + msg.Content
+		}
 	case "system":
 		msg.Role = RoleSystem
 		msg.IsSystem = true
+	case "tool":
+		msg.Role = RoleTool
 	default:
 		msg.Role = RoleUser
+	}
+
+	if msg.Role == RoleUser {
+		if cleaned, timestamp, ok := extractTaggedTimestamp(msg.Content); ok {
+			msg.Content = cleaned
+			msg.Timestamp = timestamp
+			msg.HasTimestamp = true
+		}
 	}
 
 	if msg.Role == RoleUser && hasHiddenPromptMarker(msg.Content) {
 		msg.Role = RoleSystem
 		msg.IsSystem = true
 		msg.HiddenInput = true
+	}
+	msg.Content = strings.TrimSpace(msg.Content)
+	if msg.Role == RoleUser && strings.TrimSpace(msg.Content) == "" &&
+		len(msg.ToolCalls) == 0 && len(msg.ToolResults) == 0 {
+		return Message{}, false
 	}
 
 	return msg, true
@@ -287,6 +361,8 @@ func normalizeBlockType(raw string) string {
 	switch strings.TrimSpace(raw) {
 	case "text":
 		return "text"
+	case "thinking":
+		return "thinking"
 	case "tool_use", "tool-use", "toolUse", "tool_call", "tool-call":
 		return "tool_use"
 	case "tool_result", "tool-result", "toolResult":
@@ -329,6 +405,9 @@ func normalizeToolResult(block contentBlock) (ToolResult, bool) {
 		return ToolResult{}, false
 	}
 	contentRaw := normalizeJSONContainer(block.Content)
+	if contentRaw == "[]" {
+		contentRaw = normalizeJSONContainer(block.Result)
+	}
 	return ToolResult{
 		ToolUseID:     toolUseID,
 		ContentRaw:    contentRaw,
@@ -360,6 +439,101 @@ func normalizeJSONContainer(raw json.RawMessage) string {
 		return "[]"
 	}
 	return trimmed
+}
+
+func extractTaggedTimestamp(content string) (string, time.Time, bool) {
+	matches := timestampTagRE.FindStringSubmatchIndex(content)
+	if matches == nil {
+		return content, time.Time{}, false
+	}
+	rawTimestamp := strings.TrimSpace(content[matches[2]:matches[3]])
+	parsed, ok := parseEmbeddedTimestamp(rawTimestamp)
+	if !ok {
+		return content, time.Time{}, false
+	}
+	cleaned := strings.TrimSpace(content[:matches[0]] + content[matches[1]:])
+	return cleaned, parsed, true
+}
+
+func parseEmbeddedTimestamp(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	if t, ok := parseWithUTCOffset(raw); ok {
+		return t, true
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"Monday, Jan 2, 2006, 3:04 PM",
+		"Mon, Jan 2, 2006, 3:04 PM",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseWithUTCOffset(raw string) (time.Time, bool) {
+	open := strings.LastIndex(raw, "(")
+	close := strings.LastIndex(raw, ")")
+	if open < 0 || close <= open {
+		return time.Time{}, false
+	}
+	datePart := strings.TrimSpace(raw[:open])
+	zonePart := strings.TrimSpace(raw[open+1 : close])
+	offsetSeconds, ok := parseUTCOffset(zonePart)
+	if !ok {
+		return time.Time{}, false
+	}
+	location := time.FixedZone(zonePart, offsetSeconds)
+	layouts := []string{
+		"Monday, Jan 2, 2006, 3:04 PM",
+		"Mon, Jan 2, 2006, 3:04 PM",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, datePart, location); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseUTCOffset(zone string) (int, bool) {
+	if zone == "UTC" {
+		return 0, true
+	}
+	matches := utcOffsetRE.FindStringSubmatch(zone)
+	if matches == nil {
+		return 0, false
+	}
+	sign := 1
+	if matches[1] == "-" {
+		sign = -1
+	}
+	hours := parseDigits(matches[2])
+	minutes := 0
+	if matches[3] != "" {
+		minutes = parseDigits(matches[3])
+	}
+	if hours > 23 || minutes > 59 {
+		return 0, false
+	}
+	return sign * ((hours * 60 * 60) + (minutes * 60)), true
+}
+
+func parseDigits(value string) int {
+	total := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		total = total*10 + int(r-'0')
+	}
+	return total
 }
 
 func contentLength(contentRaw string) int {

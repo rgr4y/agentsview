@@ -811,7 +811,7 @@ var Registry = []AgentDef{
 		DisplayName: "Grok Bot",
 		EnvVar:      "GROK_BOT_DATA_DIR",
 		ConfigKey:   "grok_bot_dirs",
-		DefaultDirs: []string{"agent-data"},
+		DefaultDirs: []string{"workspace/.grokbot/projects"},
 		IDPrefix:    "grok-bot:",
 		FileBased:   true,
 	},

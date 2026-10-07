@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,16 +23,11 @@ func newGrokBotProviderFactory(def AgentDef) ProviderFactory {
 }
 
 func newGrokBotSourceSet(roots []string) JSONLSourceSet {
-	transcriptRoots := make([]string, 0, len(roots))
+	cleanRoots := make([]string, 0, len(roots))
 	for _, root := range roots {
-		cleanRoot := filepath.Clean(root)
-		if filepath.Base(cleanRoot) == "agent-transcripts" {
-			transcriptRoots = append(transcriptRoots, cleanRoot)
-			continue
-		}
-		transcriptRoots = append(transcriptRoots, grokbotimport.TranscriptRoot(cleanRoot))
+		cleanRoots = append(cleanRoots, strings.TrimSpace(root))
 	}
-	return NewJSONLSourceSet(AgentGrokBot, transcriptRoots,
+	return NewJSONLSourceSet(AgentGrokBot, cleanRoots,
 		WithRecursive(),
 		WithContentHashing(),
 		WithIncludePath(isGrokBotSourcePath),
@@ -47,12 +41,12 @@ func newGrokBotSourceSet(roots []string) JSONLSourceSet {
 }
 
 func isGrokBotSourcePath(root, path string) bool {
-	_, ok := grokbotimport.MatchTranscriptPath(root, path)
+	_, ok := grokbotimport.MatchPathUnderDataRoot(root, path)
 	return ok
 }
 
 func grokBotProjectHintFromPath(root, path string) string {
-	agentID, ok := grokbotimport.MatchTranscriptPath(root, path)
+	agentID, ok := grokbotimport.MatchPathUnderDataRoot(root, path)
 	if !ok {
 		return ""
 	}
@@ -60,7 +54,7 @@ func grokBotProjectHintFromPath(root, path string) string {
 }
 
 func grokBotSessionIDFromPath(root, path string) string {
-	agentID, ok := grokbotimport.MatchTranscriptPath(root, path)
+	agentID, ok := grokbotimport.MatchPathUnderDataRoot(root, path)
 	if !ok {
 		return ""
 	}
@@ -85,14 +79,32 @@ func grokBotParseFile(
 
 	msgs := make([]ParsedMessage, 0, len(parsed.Messages))
 	fileTime := info.ModTime()
+	var (
+		startedAt time.Time
+		endedAt   time.Time
+	)
 	for ordinal, message := range parsed.Messages {
+		timestamp := fileTime
+		if message.HasTimestamp {
+			timestamp = message.Timestamp
+		}
 		pm := ParsedMessage{
 			Ordinal:       ordinal,
 			Role:          mapGrokBotRole(message.Role),
 			IsSystem:      message.IsSystem,
 			Content:       message.Content,
 			ContentLength: len(message.Content),
-			Timestamp:     fileTime,
+			Timestamp:     timestamp,
+			HasThinking:   message.HasThinking,
+			ThinkingText:  message.ThinkingText,
+		}
+		if !timestamp.IsZero() {
+			if startedAt.IsZero() || timestamp.Before(startedAt) {
+				startedAt = timestamp
+			}
+			if endedAt.IsZero() || timestamp.After(endedAt) {
+				endedAt = timestamp
+			}
 		}
 		for _, call := range message.ToolCalls {
 			input := call.InputJSON
@@ -119,6 +131,12 @@ func grokBotParseFile(
 	rawSessionID := parsed.RawSessionID
 	sessionID := string(AgentGrokBot) + ":" + rawSessionID
 	sessionTime := fallbackSessionTime(fileTime, req.Fingerprint.MTimeNS)
+	if startedAt.IsZero() {
+		startedAt = sessionTime
+	}
+	if endedAt.IsZero() {
+		endedAt = sessionTime
+	}
 	result := ParseResult{
 		Session: ParsedSession{
 			ID:               sessionID,
@@ -129,8 +147,8 @@ func grokBotParseFile(
 			SourceVersion:    grokBotSourceVersion,
 			MalformedLines:   parsed.MalformedLines,
 			FirstMessage:     truncate(strings.ReplaceAll(parsed.FirstUserMessage, "\n", " "), 300),
-			StartedAt:        sessionTime,
-			EndedAt:          sessionTime,
+			StartedAt:        startedAt,
+			EndedAt:          endedAt,
 			MessageCount:     len(msgs),
 			UserMessageCount: parsed.UserMessageCount,
 			File: FileInfo{
@@ -153,6 +171,8 @@ func mapGrokBotRole(role grokbotimport.Role) RoleType {
 		return RoleAssistant
 	case grokbotimport.RoleSystem:
 		return RoleSystem
+	case grokbotimport.RoleTool:
+		return RoleTool
 	default:
 		return RoleUser
 	}
@@ -173,6 +193,7 @@ func grokBotProviderCapabilities() Capabilities {
 		Source: jsonlFileProviderSourceCapabilities(),
 		Content: ContentCapabilities{
 			FirstMessage:       CapabilitySupported,
+			Thinking:           CapabilitySupported,
 			ToolCalls:          CapabilitySupported,
 			ToolResults:        CapabilitySupported,
 			MalformedLineCount: CapabilitySupported,
