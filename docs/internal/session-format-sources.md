@@ -1184,6 +1184,24 @@ fixtures retain this field; missing identities remain source-local.
   summary appears, and same-size, same-mtime companion edits. Parsed formats
   and usage accounting are unchanged.
 
+## Grok Bot (`grok-bot`)
+
+- **Format:** One append-only JSONL transcript per agent at
+  `<data-root>/agent-transcripts/<agent-id>/<agent-id>.jsonl`, with
+  line-delimited role/message objects that can contain text, tool call, and
+  tool result blocks. Lines do not include stable per-message timestamps or
+  session IDs, so session identity is path-derived and message/session times
+  fall back to transcript file mtime.
+- **Evidence:** `no-public-source`.
+- **Upstream:** No public Grok Bot schema or repository is available; the
+  format and directory layout were checked 2026-10-07 against sanitized local
+  transcript samples and observed on-disk paths.
+- **Usage and cost:** Transcript rows do not expose authoritative token, cache,
+  reasoning, or cost fields.
+- **Agentsview:** `internal/grokbotimport/parse.go` and
+  `internal/parser/grok_bot_provider.go`, with fixtures in
+  `internal/parser/testdata/grokbot`.
+
 ## MiMo Code (`mimocode`)
 
 - **Format:** OpenCode-compatible SQLite or legacy `storage/session`,

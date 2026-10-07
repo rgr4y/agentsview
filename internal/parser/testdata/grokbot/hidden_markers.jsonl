@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"[SAND_HIDDEN_PROMPT][event] Something changed.\n- Renamed to HelpBot"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Staying silent on this internal event."}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"Can you summarize today's changes?"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Here is the summary."}]}}

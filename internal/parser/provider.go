@@ -1263,6 +1263,8 @@ func providerFactoryForDef(def AgentDef) ProviderFactory {
 		return newAugureDesktopProviderFactory(def)
 	case AgentGrok:
 		return newGrokProviderFactory(def)
+	case AgentGrokBot:
+		return newGrokBotProviderFactory(def)
 	case AgentGoose:
 		return newGooseProviderFactory(def)
 	case AgentIflow:

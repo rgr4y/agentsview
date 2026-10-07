@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"Please read the project README."}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"I'll inspect it now."},{"type":"tool_use","id":"call-read-1","name":"Read","input":{"path":"README.md"}}]}}
+{"role":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-read-1","content":[{"type":"text","text":"# agentsview"}]}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Found it and summarized the key sections."}]}}

@@ -62,6 +62,7 @@ const (
 	AgentHermes         AgentType = "hermes"
 	AgentAugureDesktop  AgentType = "augure-desktop"
 	AgentGrok           AgentType = "grok"
+	AgentGrokBot        AgentType = "grok-bot"
 	AgentGoose          AgentType = "goose"
 	AgentWorkBuddy      AgentType = "workbuddy"
 	AgentCodeBuddy      AgentType = "codebuddy"
@@ -799,6 +800,19 @@ var Registry = []AgentDef{
 		ConfigKey:   "grok_dirs",
 		DefaultDirs: []string{".grok/sessions"},
 		IDPrefix:    "grok:",
+		FileBased:   true,
+	},
+	{
+		// Grok Bot stores one append-only transcript per agent under
+		// <data-root>/agent-transcripts/<agent-id>/<agent-id>.jsonl.
+		// The provider appends "agent-transcripts" beneath each configured
+		// data root and derives a stable session id from the agent id.
+		Type:        AgentGrokBot,
+		DisplayName: "Grok Bot",
+		EnvVar:      "GROK_BOT_DATA_DIR",
+		ConfigKey:   "grok_bot_dirs",
+		DefaultDirs: []string{"agent-data"},
+		IDPrefix:    "grok-bot:",
 		FileBased:   true,
 	},
 	{

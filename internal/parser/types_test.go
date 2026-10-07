@@ -509,6 +509,7 @@ func TestRegistryCompleteness(t *testing.T) {
 		AgentHermes,
 		AgentAugureDesktop,
 		AgentGrok,
+		AgentGrokBot,
 		AgentGoose,
 		AgentForge,
 		AgentDevin,
@@ -671,6 +672,16 @@ func TestStepCodeRegistryEntry(t *testing.T) {
 	assert.Equal(t, "stepcode_dirs", def.ConfigKey)
 	assert.Equal(t, []string{".stepcode/agent/sessions"}, def.DefaultDirs)
 	assert.Equal(t, "stepcode:", def.IDPrefix)
+}
+
+func TestGrokBotRegistryEntry(t *testing.T) {
+	def, ok := AgentByType(AgentGrokBot)
+	require.True(t, ok, "AgentGrokBot missing from Registry")
+	require.True(t, def.FileBased, "Grok Bot FileBased")
+	assert.Equal(t, "GROK_BOT_DATA_DIR", def.EnvVar)
+	assert.Equal(t, "grok_bot_dirs", def.ConfigKey)
+	assert.Equal(t, []string{"agent-data"}, def.DefaultDirs)
+	assert.Equal(t, "grok-bot:", def.IDPrefix)
 }
 
 func TestZedRegistryEntry(t *testing.T) {
